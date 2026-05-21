@@ -92,54 +92,9 @@ static uint8_t Timer_Check(void)
     return 0;
 }
 
-/* ==================== 状态枚举 ==================== */
+/* ==================== 状态枚举 ==================== *///任务序列
 typedef enum {
-    /* 任务2状态序列 */
-    STATE2_STRAIGHT1,   // 第一段直行
-    STATE2_TRACKING1,   // 第一段循迹
-    STATE2_STRAIGHT2,   // 第二段直行
-    STATE2_TRACKING2,   // 第二段循迹
-    STATE2_STOP1,       // 停止
-
-    /* 任务3状态序列 */
-    STATE3_STRAIGHT1A,  // 第一段直行：以0°目标直行1.5秒
-    STATE3_STRAIGHT1B,  // 第一段直行：以20°目标直行直到黑线
-    STATE3_TRACKING1,   // 第一段循迹
-    STATE3_TRACKING2,   // 第二段循迹
-    STATE3_STRAIGHT2A,   // 第二段直行
-    STATE3_STRAIGHT2B,   // 第二段直行
-    STATE3_STOP1,       // 停止
-
-    /* 任务4状态序列：任务3重复4圈，逐圈展开 */
-    // 第1圈
-    STATE4_C1_STRAIGHT1A,
-    STATE4_C1_STRAIGHT1B,
-    STATE4_C1_TRACKING1,
-    STATE4_C1_STRAIGHT2A,
-    STATE4_C1_STRAIGHT2B,
-    STATE4_C1_TRACKING2,
-    // 第2圈
-    STATE4_C2_STRAIGHT1A,
-    STATE4_C2_STRAIGHT1B,
-    STATE4_C2_TRACKING1,
-    STATE4_C2_STRAIGHT2A,
-    STATE4_C2_STRAIGHT2B,
-    STATE4_C2_TRACKING2,
-    // 第3圈
-    STATE4_C3_STRAIGHT1A,
-    STATE4_C3_STRAIGHT1B,
-    STATE4_C3_TRACKING1,
-    STATE4_C3_STRAIGHT2A,
-    STATE4_C3_STRAIGHT2B,
-    STATE4_C3_TRACKING2,
-    // 第4圈
-    STATE4_C4_STRAIGHT1A,
-    STATE4_C4_STRAIGHT1B,
-    STATE4_C4_TRACKING1,
-    STATE4_C4_STRAIGHT2A,
-    STATE4_C4_STRAIGHT2B,
-    STATE4_C4_TRACKING2,
-    STATE4_STOP1,
+    
 } CarState;
 
 CarState now_state;  // 当前状态机状态
@@ -277,15 +232,6 @@ static void Key_Scan(void)
         OLED_ShowString(2, 1, "Yaw:");
         break;
 
-    case 4:
-        task_select = 4;
-        Car_Set_Straight_Target(0.0f);
-        now_state = STATE4_C1_STRAIGHT1A;
-        OLED_Clear();
-        OLED_ShowString(1, 1, "Task:4");
-        OLED_ShowString(2, 1, "Yaw:");
-        break;
-
     default:
         break;
     }
@@ -314,38 +260,7 @@ static void Car_Run_StateMachine(void)
     case 2:
         switch (now_state)
         {
-        case STATE2_STRAIGHT1:
-            Car_Go_Straight_To_Target(40, 0.0f);
-            if (Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE2_TRACKING1;
-            }
-            break;
-
-        case STATE2_TRACKING1:
-           track_zhixian1();
-            if (Check_BlackLine() == 0) {
-              Buzzer_Beep(100);
-                now_state = STATE2_STRAIGHT2;
-            }
-            break;
-      
-        case STATE2_STRAIGHT2:
-           Car_Go_Straight_To_Target(40, 89.0f);
-            if (Check_BlackLine() == 1) {   
-                Buzzer_Beep(100);
-                now_state = STATE2_TRACKING2;
-            }
-            break;
-
-        case STATE2_TRACKING2:
-         track_zhixian1(); 
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE2_STOP1;
-            }
-            break;
-
+        
         case STATE2_STOP1:
             Buzzer_Beep(100);
             Set_PWM(0, 0);
@@ -358,56 +273,6 @@ static void Car_Run_StateMachine(void)
     case 3:
         switch (now_state)
         {
-        case STATE3_STRAIGHT1A:
-            Car_Go_Straight_To_Target(40, -27.0f);   // 先以0°目标直行
-            if(!timer_active) Timer_Start(237);    // 启动1.5秒定时
-            if(Timer_Check()) {                     // 1.5秒到
-                timer_active = 0;
-                now_state = STATE3_STRAIGHT1B;
-            }
-            break;
-
-        case STATE3_STRAIGHT1B:
-            Car_Go_Straight_To_Target(40, 0.0f);  // 再以20°目标直行
-            if(Check_BlackLine() == 1) {            // 检测到黑线
-                Buzzer_Beep(100);
-                now_state = STATE3_TRACKING1;
-            }
-            break;
-
-        case STATE3_TRACKING1:
-              track_zhixian1(); 
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE3_STRAIGHT2A;
-            }
-            break;
-
-        case STATE3_STRAIGHT2A:
-             Car_Go_Straight_To_Target(40, 120.0f);   // 先以0°目标直行
-            if(!timer_active) Timer_Start(1370);    // 启动1.5秒定时
-            if(Timer_Check()) {                     // 1.5秒到
-                timer_active = 0;
-                now_state = STATE3_STRAIGHT2B;
-            }
-            break;
-
-        case STATE3_STRAIGHT2B:
-            Car_Go_Straight_To_Target(40, 90.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE3_TRACKING2;
-            }
-            break;
-
-        case STATE3_TRACKING2:
-           track_zhixian1(); 
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE3_STOP1;
-            }
-            break;
-
         case STATE3_STOP1:
             Set_PWM(0, 0);
             car_state = 0x0000;
@@ -419,223 +284,15 @@ static void Car_Run_StateMachine(void)
     case 4:
         switch (now_state)
         {
-        /* ==== 第1圈 ==== */
-        case STATE4_C1_STRAIGHT1A:
-            Car_Go_Straight_To_Target(30, -22.5f);
-            if(!timer_active) Timer_Start(2450);//1.8秒
-            if(Timer_Check()) {
-                timer_active = 0;
-                now_state = STATE4_C1_STRAIGHT1B;
-            }
-            break;
-
-        case STATE4_C1_STRAIGHT1B:
-            Car_Go_Straight_To_Target(30, 0.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C1_TRACKING1;
-            }
-            break;
-
-        case STATE4_C1_TRACKING1:
-            track_zhixian1();
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C1_STRAIGHT2A;
-            }
-            break;
-
-        case STATE4_C1_STRAIGHT2A:
-            Car_Go_Straight_To_Target(30, 112.5f);
-            if(!timer_active) Timer_Start(2200);
-            if(Timer_Check()) {
-                timer_active = 0;
-                now_state = STATE4_C1_STRAIGHT2B;
-            }
-            break;
-
-        case STATE4_C1_STRAIGHT2B:
-            Car_Go_Straight_To_Target(30, 90.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C1_TRACKING2;
-            }
-            break;
-
-        case STATE4_C1_TRACKING2:
-            track_zhixian1();
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C2_STRAIGHT1A;
-            }
-            break;
-
-        /* ==== 第2圈 ==== */
-        case STATE4_C2_STRAIGHT1A:
-            Car_Go_Straight_To_Target(30, -22.5f);
-            if(!timer_active) Timer_Start(2200);
-            if(Timer_Check()) {
-                timer_active = 0;
-                now_state = STATE4_C2_STRAIGHT1B;
-            }
-            break;
-
-        case STATE4_C2_STRAIGHT1B:
-            Car_Go_Straight_To_Target(30, 0.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C2_TRACKING1;
-            }
-            break;
-
-        case STATE4_C2_TRACKING1:
-            track_zhixian1();
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C2_STRAIGHT2A;
-            }
-            break;
-
-        case STATE4_C2_STRAIGHT2A:
-            Car_Go_Straight_To_Target(30, 112.5f);
-            if(!timer_active) Timer_Start(2200);
-            if(Timer_Check()) {
-                timer_active = 0;
-                now_state = STATE4_C2_STRAIGHT2B;
-            }
-            break;
-
-        case STATE4_C2_STRAIGHT2B:
-            Car_Go_Straight_To_Target(30, 90.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C2_TRACKING2;
-            }
-            break;
-
-        case STATE4_C2_TRACKING2:
-            track_zhixian1();
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C3_STRAIGHT1A;
-            }
-            break;
-
-        /* ==== 第3圈 ==== */
-        case STATE4_C3_STRAIGHT1A:
-            Car_Go_Straight_To_Target(30, -22.5f);
-            if(!timer_active) Timer_Start(2200);
-            if(Timer_Check()) {
-                timer_active = 0;
-                now_state = STATE4_C3_STRAIGHT1B;
-            }
-            break;
-
-        case STATE4_C3_STRAIGHT1B:
-            Car_Go_Straight_To_Target(30, 0.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C3_TRACKING1;
-            }
-            break;
-
-        case STATE4_C3_TRACKING1:
-            track_zhixian1();
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C3_STRAIGHT2A;
-            }
-            break;
-
-        case STATE4_C3_STRAIGHT2A:
-            Car_Go_Straight_To_Target(30, 112.5f);
-            if(!timer_active) Timer_Start(2200);
-            if(Timer_Check()) {
-                timer_active = 0;
-                now_state = STATE4_C3_STRAIGHT2B;
-            }
-            break;
-
-        case STATE4_C3_STRAIGHT2B:
-            Car_Go_Straight_To_Target(30, 90.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C3_TRACKING2;
-            }
-            break;
-
-        case STATE4_C3_TRACKING2:
-            track_zhixian1();
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C4_STRAIGHT1A;
-            }
-            break;
-
-        /* ==== 第4圈 ==== */
-        case STATE4_C4_STRAIGHT1A:
-            Car_Go_Straight_To_Target(30, -22.5f);
-            if(!timer_active) Timer_Start(2200);
-            if(Timer_Check()) {
-                timer_active = 0;
-                now_state = STATE4_C4_STRAIGHT1B;
-            }
-            break;
-
-        case STATE4_C4_STRAIGHT1B:
-            Car_Go_Straight_To_Target(30, 0.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C4_TRACKING1;
-            }
-            break;
-
-        case STATE4_C4_TRACKING1:
-            track_zhixian1();
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C4_STRAIGHT2A;
-            }
-            break;
-
-        case STATE4_C4_STRAIGHT2A:
-            Car_Go_Straight_To_Target(30, 112.5f);
-            if(!timer_active) Timer_Start(2200);
-            if(Timer_Check()) {
-                timer_active = 0;
-                now_state = STATE4_C4_STRAIGHT2B;
-            }
-            break;
-
-        case STATE4_C4_STRAIGHT2B:
-            Car_Go_Straight_To_Target(30, 90.0f);
-            if(Check_BlackLine() == 1) {
-                Buzzer_Beep(100);
-                now_state = STATE4_C4_TRACKING2;
-            }
-            break;
-
-        case STATE4_C4_TRACKING2:
-            track_zhixian1();
-            if (Check_BlackLine() == 0) {
-                Buzzer_Beep(100);
-                now_state = STATE4_STOP1;
-            }
-            break;
-
         case STATE4_STOP1:
             Set_PWM(0, 0);
             car_state = 0x0000;
             break;
-
-        default:
-            now_state = STATE4_C1_STRAIGHT1A;
-            break;
         }
         break;
 
-    default:
-        break;
+        default:
+            break;
     }
 }
 
