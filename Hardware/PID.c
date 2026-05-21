@@ -8,7 +8,6 @@ static float straight_target_angle = 0.0f;
 static float yaw_offset = 0.0f;
 extern int V_R;               // 右电机速度输出
 extern int V_L;               // 左电机速度输出
-
 // 直行控制使用的位置式PID结构体
 typedef struct
 {
@@ -24,7 +23,6 @@ typedef struct
 } PID_TypeDef;
 
 static PID_TypeDef PID_Str;        // 直行控制PID实例
-
 static PID_TypeDef PID_Turn;       // 转弯控制PID实例
 
 // 初始化直行控制PID参数
@@ -40,7 +38,6 @@ static void PID_Init(float kp, float ki, float kd)
     PID_Str.integral = 0;
     PID_Str.output = 0;
 }
-
 // 初始化转弯控制PID参数
 static void PID_Turn_Init(float kp, float ki, float kd)
 {
@@ -91,13 +88,11 @@ static float PID_Calc_Generic(PID_TypeDef *pid, float measure, float target)
     pid->last_err = pid->err;
     return pid->output;
 }
-
 // 直行PID专用计算（保持原有行为）
 static float PID_Calc(float measure, float target)
 {
     return PID_Calc_Generic(&PID_Str, measure, target);
 }
-
 // 清空PID内部状态，通常在重新开始任务或转弯前调用
 static void PID_Clear(void)
 {
@@ -106,7 +101,6 @@ static void PID_Clear(void)
     PID_Str.integral = 0;
     PID_Str.output = 0;
 }
-
 // 清空转弯PID内部状态
 static void PID_Turn_Clear(void)
 {
@@ -115,10 +109,7 @@ static void PID_Turn_Clear(void)
     PID_Turn.integral = 0;
     PID_Turn.output = 0;
 }
-
-/**
- * @brief  将角度差归一化到 -180° ~ +180°
- */
+//将角度差归一化到 -180° ~ +180°
 static float Angle_Normalize(float diff)
 {
     while (diff > 180.0f)
@@ -127,17 +118,12 @@ static float Angle_Normalize(float diff)
         diff += 360.0f;
     return diff;
 }
-
-
-
-// Yaw已在main.c主循环中每20ms更新一次（IMU660RA_GetData + IMU660RA_UpdateYaw_Filtered）
-// Car_Update_Angle() 仅作为获取最新Yaw值的占位函数，避免重复积分
-// 所有PID函数内部调用此函数时不再重复读取IMU
 void Car_Update_Angle(void)
 {
-    /* 无需操作：Yaw已在main.c的主循环中完成更新 */
+   // Yaw已在main.c主循环中每20ms更新一次（IMU660RA_GetData + IMU660RA_UpdateYaw_Filtered）
+// Car_Update_Angle() 仅作为获取最新Yaw值的占位函数，避免重复积分
+// 所有PID函数内部调用此函数时不再重复读取IMU
 }
-
 // 读取当前偏航角（基于IMU660RA，以校准时刻为基准偏移）
 float Car_Get_Angle(void)
 {
@@ -151,23 +137,19 @@ float Car_Get_Angle(void)
 
     return diff;
 }
-
 void Car_Set_Straight_Target(float target)
 {
     straight_target_angle = target;
 }
-
 float Car_Get_Straight_Target(void)
 {
     return straight_target_angle;
 }
-
 void Car_Lock_Current_Heading(void)
 {
     straight_target_angle = Car_Get_Angle();
     PID_Clear();
 }
-
 // 重新开始角度计算：以当前IMU yaw为偏移基准
 void Car_Reset_Angle(void)
 {
@@ -222,59 +204,7 @@ void Car_Go_Straight(int speed)
     Set_PWM(V_R, V_L);
 }
 
-// 0.75秒内从0加速到目标速度（带目标航向闭环），需在20ms周期中持续调用
-void Car_Go_Straight_To_Target_Ramp(int target_speed, float target_yaw)
-{
-    const int ramp_steps = 25; // 0.75秒 / 20ms ≈ 37步
-    static int last_target_speed = 0;
-    static float last_target_yaw = 0.0f;
-    static int current_step = 0;
-    static int current_speed = 0;
-
-    // 目标速度或目标角度变化时重置加速过程
-    if (target_speed != last_target_speed || target_yaw != last_target_yaw)
-    {
-        last_target_speed = target_speed;
-        last_target_yaw = target_yaw;
-        current_step = 0;
-        current_speed = 0;
-    }
-
-    if (target_speed == 0)
-    {
-        current_speed = 0;
-        Car_Go_Straight_To_Target(0, target_yaw);
-        return;
-    }
-
-    if (current_step < ramp_steps)
-    {
-        float ratio = (float)(current_step + 1) / (float)ramp_steps;
-        current_speed = (int)(target_speed * ratio + (target_speed >= 0 ? 0.5f : -0.5f));
-        current_step++;
-    }
-    else
-    {
-        current_speed = target_speed;
-    }
-
-    Car_Go_Straight_To_Target(current_speed, target_yaw);
-}
-
-/* ===================================================================
- *  新添加的函数：按目标角度直行 + PID闭环转弯到指定Yaw
- * =================================================================== */
-
-/**
- * @brief  按目标Yaw角度直行（闭环控制）
- *
- *         优化说明（2026-05-08）：
- *         - 原来使用简单P控制（p_gain=0.15，correction限幅±3），
- *           导致纠偏力度严重不足和整数截杀死区。
- *         - 现在改为复用 Car_Go_Straight 中的位置式PID（Kp=1.0, Kd=5.0，
- *           correction限幅±4），保证一致的纠偏强度。
- *         - 解决起步时左右轮速度不一致的问题（弱PID无法纠正硬件不对称）。
- */
+//按yaw角度转弯到目标角度，返回1表示到位，0表示仍在转弯中
 void Car_Go_Straight_To_Target(int speed, float target_yaw)
 {
     float angle;

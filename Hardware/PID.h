@@ -20,8 +20,6 @@ void Car_Lock_Current_Heading(void);
 void Car_Reset_Angle(void);
 // 直行控制：基于当前角度偏差修正左右轮速度
 void Car_Go_Straight(int speed);
-// 0.75秒内从0加速到目标速度（带目标航向闭环），需在20ms周期中持续调用
-void Car_Go_Straight_To_Target_Ramp(int target_speed, float target_yaw);
 
 /* ====== 新添加的PID控制函数 ====== */
 
