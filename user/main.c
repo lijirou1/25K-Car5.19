@@ -11,6 +11,7 @@
 #include "OLED.h"
 #include "Buzzer.h"
 #include "PID.h"
+#include "timer.h"
 
 /* ==================== 外部函数声明（来源于其他模块） ==================== */
 extern void        Key_Init(void);
@@ -40,9 +41,6 @@ uint8_t task_select = 1;
 
 // 按键扫描得到的键值
 uint8_t Keynum = 0;
-
-// 20ms 控制节拍标志（在 TIM2 中断中置1）
-volatile uint8_t control_flag = 0;
 
 // OLED显示节拍计数器：每10个节拍（200ms）刷新一次，减少I2C对控制回路的干扰
 static uint8_t oled_disp_counter = 0;
@@ -92,16 +90,14 @@ static uint8_t Timer_Check(void)
     return 0;
 }
 
-/* ==================== 状态枚举 ==================== *///任务序列
-typedef enum {
-    
-} CarState;
-
-CarState now_state;  // 当前状态机状态
+// /* ==================== 状态枚举 ==================== *///任务序列
+// typedef enum {
+// } 
+//  CarState;
+// CarState now_state;  // 当前状态机状态
 
 /* ==================== 函数声明 ==================== */
 static void SystemClock_Config(void);
-static void TIM2_Init(void);
 static void Key_Scan(void);
 static void Car_Run_StateMachine(void);
 static void OLED_DisplayYaw(void);
@@ -217,7 +213,7 @@ static void Key_Scan(void)
 
     case 2:
         task_select = 2;
-        now_state = STATE2_STRAIGHT1;
+        // now_state =;
         OLED_Clear();
         OLED_ShowString(1, 1, "Task:2");
         OLED_ShowString(2, 1, "Yaw:");
@@ -226,7 +222,7 @@ static void Key_Scan(void)
     case 3:
         task_select = 3;
         Car_Set_Straight_Target(0.0f);
-        now_state = STATE3_STRAIGHT1A;
+        // now_state =;
         OLED_Clear();
         OLED_ShowString(1, 1, "Task:3");
         OLED_ShowString(2, 1, "Yaw:");
@@ -258,36 +254,36 @@ static void Car_Run_StateMachine(void)
 
     /* ---------- 任务2 ---------- */
     case 2:
-        switch (now_state)
+       // switch (now_state)
         {
         
-        case STATE2_STOP1:
-            Buzzer_Beep(100);
-            Set_PWM(0, 0);
-            car_state = 0x0000;
-            break;
+        // case STATE2_STOP1:
+        //     Buzzer_Beep(100);
+        //     Set_PWM(0, 0);
+        //     car_state = 0x0000;
+        //     break;
         }
         break;
 
     /* ---------- 任务3：先0°直行1.5秒 → 再20°直行直到黑线 → 循迹 → 直行 → 循迹 → 停 ---------- */
     case 3:
-        switch (now_state)
+        //switch (now_state)
         {
-        case STATE3_STOP1:
-            Set_PWM(0, 0);
-            car_state = 0x0000;
-            break;
+        // case STATE3_STOP1:
+        //     Set_PWM(0, 0);
+        //     car_state = 0x0000;
+        //     break;
         }
         break;
 
     /* ---------- 任务4：任务3重复4圈，逐圈展开 ---------- */
     case 4:
-        switch (now_state)
+      //  switch (now_state)
         {
-        case STATE4_STOP1:
-            Set_PWM(0, 0);
-            car_state = 0x0000;
-            break;
+        // case STATE4_STOP1:
+        //     Set_PWM(0, 0);
+        //     car_state = 0x0000;
+        //     break;
         }
         break;
 
@@ -296,41 +292,3 @@ static void Car_Run_StateMachine(void)
     }
 }
 
-/* ============================================================
- *  TIM2 初始化：20ms中断
- * ============================================================ */
-static void TIM2_Init(void)
-{
-    TIM_TimeBaseInitTypeDef TIM_TimeBaseStructure;
-    NVIC_InitTypeDef NVIC_InitStructure;
-
-    RCC_APB1PeriphClockCmd(RCC_APB1Periph_TIM2, ENABLE);
-
-    /* 定时周期 = (Prescaler + 1)*(Period + 1) / 72MHz = 20ms */
-    TIM_TimeBaseStructure.TIM_Period        = 199;
-    TIM_TimeBaseStructure.TIM_Prescaler     = 7199;
-    TIM_TimeBaseStructure.TIM_ClockDivision = 0;
-    TIM_TimeBaseStructure.TIM_CounterMode   = TIM_CounterMode_Up;
-    TIM_TimeBaseInit(TIM2, &TIM_TimeBaseStructure);
-
-    TIM_ITConfig(TIM2, TIM_IT_Update, ENABLE);
-    TIM_Cmd(TIM2, ENABLE);
-
-    NVIC_InitStructure.NVIC_IRQChannel                   = TIM2_IRQn;
-    NVIC_InitStructure.NVIC_IRQChannelPreemptionPriority = 1;
-    NVIC_InitStructure.NVIC_IRQChannelSubPriority        = 1;
-    NVIC_InitStructure.NVIC_IRQChannelCmd                = ENABLE;
-    NVIC_Init(&NVIC_InitStructure);
-}
-
-/* ============================================================
- *  TIM2 中断服务函数：每20ms置位 control_flag
- * ============================================================ */
-void TIM2_IRQHandler(void)
-{
-    if (TIM_GetITStatus(TIM2, TIM_IT_Update) != RESET)
-    {
-        TIM_ClearITPendingBit(TIM2, TIM_IT_Update);
-        control_flag = 1;
-    }
-}
