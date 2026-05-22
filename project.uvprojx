@@ -711,16 +711,6 @@
               <FilePath>.\Hardware\Buzzer.h</FilePath>
             </File>
             <File>
-              <FileName>gpio.c</FileName>
-              <FileType>1</FileType>
-              <FilePath>.\Hardware\gpio.c</FilePath>
-            </File>
-            <File>
-              <FileName>gpio.h</FileName>
-              <FileType>5</FileType>
-              <FilePath>.\Hardware\gpio.h</FilePath>
-            </File>
-            <File>
               <FileName>IMU660RA.c</FileName>
               <FileType>1</FileType>
               <FilePath>.\Hardware\IMU660RA.c</FilePath>

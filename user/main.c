@@ -2,7 +2,6 @@
 #include "delay.h"
 #include "IMU660RA.h"
 #include "OLED.h"
-#include "Buzzer.h"
 #include "PID.h"
 #include "timer.h"
 /* ==================== 外部函数声明（来源于其他模块） ==================== */
@@ -13,8 +12,6 @@ extern void        Gpio_Init(void);
 extern void        PWM_Init(uint16_t arr, uint16_t psc);
 extern uint8_t     Check_BlackLine(void);
 extern void        track_zhixian1(void);
-extern void        Buzzer_Beep(uint16_t ms);
-extern void        Buzzer_Update(uint16_t period_ms);
 /* ==================== 全局变量 ==================== */
 int V_R = 0;
 int V_L = 0;
@@ -111,7 +108,6 @@ int main(void)
     Gpio_Init();//GPIO初始化
     PWM_Init(7199, 0);//PWM初始化
     Key_Init();//按键初始化
-    Buzzer_Init();//蜂鸣器初始化
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);//中断优先级分组
     IMU660ra_Calibrate();//陀螺仪校准
     TIM2_Init();//定时器初始化（20ms中断）
@@ -121,7 +117,6 @@ int main(void)
         if (control_flag)
         {
             control_flag = 0;
-            Buzzer_Update(20);
             // 读取IMU原始数据
             IMU660RA_GetData(&AX, &AY, &AZ, &GX, &GY, &GZ);
             // 更新偏航角（基于GZ积分 + 卡尔曼滤波 + 零速修正）
@@ -231,7 +226,6 @@ static void Car_Run_StateMachine(void)
             }
             break;
         case STATE1_STOP1:
-            Buzzer_Beep(100);
             Set_PWM(0, 0);
             car_state = 0x0000;
             break;
