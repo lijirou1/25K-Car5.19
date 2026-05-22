@@ -16,48 +16,30 @@ extern void        track_zhixian1(void);
 extern void        Buzzer_Beep(uint16_t ms);
 extern void        Buzzer_Update(uint16_t period_ms);
 /* ==================== 全局变量 ==================== */
-
-// 电机PWM输出值，供外部模块链接
 int V_R = 0;
 int V_L = 0;
-// IMU660RA 原始6轴数据
-int16_t AX, AY, AZ, GX, GY, GZ;
-// 车辆状态：0x1000 = 运行，0x0000 = 停止
-uint16_t car_state = 0x0000;
-// 任务选择：
-uint8_t task_select = 1;
-// 按键扫描得到的键值
-uint8_t Keynum = 0;
-// OLED显示节拍计数器：每10个节拍（200ms）刷新一次，减少I2C对控制回路的干扰
-static uint8_t oled_disp_counter = 0;
-// 任务4使用的圈数计数器
-uint8_t circle_count = 0;
-
+int16_t AX, AY, AZ, GX, GY, GZ;// IMU原始数据
+uint16_t car_state = 0x0000;// 车辆状态标志位0x0000=运行，0x1000=停止
+uint8_t task_select = 1;// 任务选择变量（1/2/3）
+uint8_t Keynum = 0;// 当前按键编号（1/2/3/4，0=无按键动作）
+static uint8_t oled_disp_counter = 0;// OLED刷新计数器，每10个节拍刷新一次
 /* ==================== 定时器辅助（用于定时直行等） ==================== */
 /*
  * 使用方法（以定时直行1.5秒为例）：
- *
  *   case MY_STATE:
  *       Car_Go_Straight_To_Target(40, 0.0f);
- *       if(!timer_active) Timer_Start(1500);   // 首次进入时启动
- *       if(Timer_Check()) {                     // 时间到
- *           now_state = MY_NEXT_STATE;
- *       }
+ *       if(!timer_active) Timer_Start(1500);  
+ *       if(Timer_Check()) {now_state = MY_NEXT_STATE;}
  *       break;
- *
- * 定时+黑线混合：
- *   if(Timer_Check() || Check_BlackLine()) { ... }
  */
 static uint16_t task_timer = 0;       // 定时计数器（单位：20ms）
 static uint8_t  timer_active = 0;     // 定时器是否激活
-
 // 启动定时器，ms 按20ms对齐向上取整
 static void Timer_Start(uint16_t ms)
 {
     task_timer = (ms + 19) / 20;
     timer_active = 1;
 }
-
 // 检查定时器是否到期（每次20ms周期调用一次）
 // 返回 1 = 时间到（自动停止定时器），0 = 还在计时中
 static uint8_t Timer_Check(void)
@@ -107,46 +89,35 @@ typedef enum {
 }
  CarState;
 CarState now_state;  // 当前状态机状态
-
 /* ==================== 函数声明 ==================== */
 static void SystemClock_Config(void);
 static void Key_Scan(void);
 static void Car_Run_StateMachine(void);
 static void OLED_DisplayYaw(void);
-
 /* ==================== 系统初始化 ==================== */
-/**
- * @brief  配置系统时钟为72MHz
- */
 static void SystemClock_Config(void)
 {
     SystemInit();
 }
-
 /* ==================== 主函数 ==================== */
 int main(void)
 {
-    /* ---- 系统初始化 ---- */
-    SystemClock_Config();
-    OLED_Init();
+    SystemClock_Config();//系统初始化
+    OLED_Init();//OLED初始化
     OLED_Clear();
     OLED_ShowString(1, 1, "Task:1");
     OLED_ShowString(2, 1, "Yaw:");
-    IMU660RA_Init();
-    Gpio_Init();
-    PWM_Init(7199, 0);
-    Key_Init();
-    Buzzer_Init();
-    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
-    /* ---- 陀螺仪校准 + PID初始化 ---- */
-    IMU660ra_Calibrate();
-    /* ---- 启动20ms定时器中断 ---- */
-    TIM2_Init();
-    /* ---- 主循环 ---- */
+    IMU660RA_Init();//陀螺仪初始化
+    Gpio_Init();//GPIO初始化
+    PWM_Init(7199, 0);//PWM初始化
+    Key_Init();//按键初始化
+    Buzzer_Init();//蜂鸣器初始化
+    NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);//中断优先级分组
+    IMU660ra_Calibrate();//陀螺仪校准
+    TIM2_Init();//定时器初始化（20ms中断）
     while (1)
     {
-        Key_Scan();
-
+        Key_Scan();//扫描按键
         if (control_flag)
         {
             control_flag = 0;
@@ -174,19 +145,13 @@ int main(void)
     }
 }
 
-/**
- * @brief  在OLED上显示偏航角（第2行，从第6列开始）
- */
 static void OLED_DisplayYaw(void)
 {
     float yaw = IMU660RA_GetYaw();
     uint16_t yaw_int = (uint16_t)yaw;
     OLED_ShowNum(2, 6, yaw_int, 3);
 }
-
-/* ============================================================
- *  按键扫描
- * ============================================================ */
+/* ===================按键扫描==================== */
 static void Key_Scan(void)
 {
     Keynum = Key_GetNum();
@@ -198,10 +163,9 @@ static void Key_Scan(void)
     IMU660ra_Calibrate();
     Car_Update_Angle();
     Car_Lock_Current_Heading();
-    circle_count = 0;
     timer_active = 0;       // 重置定时器
     car_state = 0x1000;
-
+//按键设置
     switch (Keynum)
     {
     case 1:
@@ -233,10 +197,7 @@ static void Key_Scan(void)
         break;
     }
 }
-
-/* ============================================================
- *  车辆状态机
- * ============================================================ */
+/* =============车辆状态机============= */
 static void Car_Run_StateMachine(void)
 {
     switch (task_select)
