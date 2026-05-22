@@ -363,8 +363,8 @@ static void Car_Run_StateMachine(void)
                 }
                 break;
             case STATE3_Straight6:
-                Car_Go_Straight_To_Target(35,1.0f);
-                if(!timer_active) Timer_Start(800);   // 首次进入时启动
+                Car_Go_Straight_To_Target(40,1.0f);
+                if(!timer_active) Timer_Start(674);   // 首次进入时启动
                 if(Timer_Check()) {                  // 时间到
                     now_state = STATE3_Straight7; 
                 }
@@ -392,14 +392,14 @@ static void Car_Run_StateMachine(void)
                 break;
             case STATE3_Straight10:
                 Car_Go_Straight_To_Target(35, 240.0f);
-                if(!timer_active) Timer_Start(800);   // 首次进入时启动
+                if(!timer_active) Timer_Start(700);   // 首次进入时启动
                 if(Timer_Check()) {                  // 时间到
                     now_state = STATE3_Straight11; 
                 }
                 break;
             case STATE3_Straight11:
-                Car_Go_Straight_To_Target(35, 0.0f);
-                if(!timer_active) Timer_Start(1900);   // 首次进入时启动
+                Car_Go_Straight_To_Target(40, 0.0f);
+                if(!timer_active) Timer_Start(1600);   // 首次进入时启动
                 if(Timer_Check()) {                  // 时间到
                     now_state = STATE3_STOP1; 
                 }
