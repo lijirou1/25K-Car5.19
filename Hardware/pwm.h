@@ -3,9 +3,9 @@
 
 #include "stm32f10x.h"
 
+void Gpio_Init(void);
 void PWM_Init(u16 arr,u16 psc);
 void Set_PWMA(int PWM);
 void Set_PWMB(int PWM);
 void Set_PWM(int V_R, int V_L);
 #endif
-
