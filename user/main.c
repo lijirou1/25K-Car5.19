@@ -5,61 +5,35 @@
 #include "Buzzer.h"
 #include "PID.h"
 #include "timer.h"
-/* ==================== 外部函数声明（来源于其他模块） ==================== */
-extern void        Key_Init(void);
-extern uint8_t     Key_GetNum(void);
-extern void        Set_PWM(int V_R, int V_L);
-extern void        Gpio_Init(void);
-extern void        PWM_Init(uint16_t arr, uint16_t psc);
-extern uint8_t     Check_BlackLine(void);
-extern void        track_zhixian1(void);
-extern void        Buzzer_Beep(uint16_t ms);
-extern void        Buzzer_Update(uint16_t period_ms);
+#include "Key.h"
+#include "pwm.h"
+#include "gpio.h"
+
 /* ==================== 全局变量 ==================== */
 
-// 电机PWM输出值，供外部模块链接
+// 左右PWM速度值，供外部模块使用
 int V_R = 0;
 int V_L = 0;
-// IMU660RA 原始6轴数据
-int16_t AX, AY, AZ, GX, GY, GZ;
-// 车辆状态：0x1000 = 运行，0x0000 = 停止
-uint16_t car_state = 0x0000;
-// 任务选择：
-uint8_t task_select = 1;
-// 按键扫描得到的键值
-uint8_t Keynum = 0;
-// OLED显示节拍计数器：每10个节拍（200ms）刷新一次，减少I2C对控制回路的干扰
+// 车辆运行标志
+static uint8_t car_running = 0;
+// 任务选择
+static uint8_t task_select = 1;
+// OLED显示计数器，每10个周期（200ms）刷新一次，减少I2C对控制回路的干扰
 static uint8_t oled_disp_counter = 0;
-// 任务4使用的圈数计数器
-uint8_t circle_count = 0;
 
-/* ==================== 定时器辅助（用于定时直行等） ==================== */
-/*
- * 使用方法（以定时直行1.5秒为例）：
- *
- *   case MY_STATE:
- *       Car_Go_Straight_To_Target(40, 0.0f);
- *       if(!timer_active) Timer_Start(1500);   // 首次进入时启动
- *       if(Timer_Check()) {                     // 时间到
- *           now_state = MY_NEXT_STATE;
- *       }
- *       break;
- *
- * 定时+黑线混合：
- *   if(Timer_Check() || Check_BlackLine()) { ... }
- */
-static uint16_t task_timer = 0;       // 定时计数器（单位：20ms）
+/* ==================== 定时器工具（用于定时直行等） ==================== */
+static uint16_t task_timer = 0;       // 定时器计数值，单位：20ms节拍
 static uint8_t  timer_active = 0;     // 定时器是否激活
 
-// 启动定时器，ms 按20ms对齐向上取整
+// 启动定时器，参数ms按20ms向上取整
 static void Timer_Start(uint16_t ms)
 {
     task_timer = (ms + 19) / 20;
     timer_active = 1;
 }
 
-// 检查定时器是否到期（每次20ms周期调用一次）
-// 返回 1 = 时间到（自动停止定时器），0 = 还在计时中
+// 检查定时器是否到期，每20ms周期调用一次
+// 返回 1 = 时间到（自动停止计时），返回 0 = 正在计时中
 static uint8_t Timer_Check(void)
 {
     if(!timer_active) return 0;
@@ -75,59 +49,39 @@ static uint8_t Timer_Check(void)
     return 0;
 }
 
-/* ==================== 状态枚举 ==================== *///任务序列
+// 便捷宏：定时直行（简化状态机重复代码）
+#define TIMED_STRAIGHT(speed, yaw, ms, next_state)  do { \
+    Car_Go_Straight_To_Target(speed, yaw);               \
+    if(!timer_active) Timer_Start(ms);                   \
+    if(Timer_Check()) now_state = next_state;             \
+} while(0)
+
+/* ==================== 状态枚举 ==================== */
 typedef enum {
-    //任务1
-    STATE1_Straight1,
-    STATE1_Straight2,
-    STATE1_Straight3,
-    STATE1_STOP1,
-    //任务2
-    STATE2_Straight1,
-    STATE2_Straight2,
-    STATE2_Straight3,
-    STATE2_Straight4,
-    STATE2_Straight5,
-    STATE2_Straight6,
-    STATE2_Straight7,
-    STATE2_STOP1,
-    //任务3
-    STATE3_Straight1,
-    STATE3_Straight2,
-    STATE3_Straight3,
-    STATE3_Straight4,
-    STATE3_Straight5,
-    STATE3_Straight6,
-    STATE3_Straight7,
-    STATE3_Straight8,
-    STATE3_Straight9,
-    STATE3_Straight10,
-    STATE3_Straight11,
-    STATE3_STOP1
-}
- CarState;
-CarState now_state;  // 当前状态机状态
+    // 任务1
+    STATE1_Straight1, STATE1_Straight2, STATE1_Straight3, STATE1_STOP1,
+    // 任务2
+    STATE2_Straight1, STATE2_Straight2, STATE2_Straight3,
+    STATE2_Straight4, STATE2_Straight5, STATE2_STOP1,
+    // 任务3
+    STATE3_Straight1,  STATE3_Straight2,  STATE3_Straight3,
+    STATE3_Straight4,  STATE3_Straight5,  STATE3_Straight6,
+    STATE3_Straight7,  STATE3_Straight8,  STATE3_Straight9,
+    STATE3_Straight10, STATE3_Straight11, STATE3_STOP1
+} CarState;
+
+static CarState now_state;
 
 /* ==================== 函数声明 ==================== */
-static void SystemClock_Config(void);
 static void Key_Scan(void);
 static void Car_Run_StateMachine(void);
 static void OLED_DisplayYaw(void);
-
-/* ==================== 系统初始化 ==================== */
-/**
- * @brief  配置系统时钟为72MHz
- */
-static void SystemClock_Config(void)
-{
-    SystemInit();
-}
 
 /* ==================== 主函数 ==================== */
 int main(void)
 {
     /* ---- 系统初始化 ---- */
-    SystemClock_Config();
+    SystemInit();
     OLED_Init();
     OLED_Clear();
     OLED_ShowString(1, 1, "Task:1");
@@ -138,10 +92,9 @@ int main(void)
     Key_Init();
     Buzzer_Init();
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
-    /* ---- 陀螺仪校准 + PID初始化 ---- */
     IMU660ra_Calibrate();
-    /* ---- 启动20ms定时器中断 ---- */
     TIM2_Init();
+
     /* ---- 主循环 ---- */
     while (1)
     {
@@ -150,21 +103,15 @@ int main(void)
         if (control_flag)
         {
             control_flag = 0;
+            int16_t ax, ay, az, gx, gy, gz;
             Buzzer_Update(20);
-            // 读取IMU原始数据
-            IMU660RA_GetData(&AX, &AY, &AZ, &GX, &GY, &GZ);
-            // 更新偏航角（基于GZ积分 + 卡尔曼滤波 + 零速修正）
-            IMU660RA_UpdateYaw_Filtered(GZ);
-            // 运行状态机
-            if (car_state & 0x1000)
-            {
+            IMU660RA_GetData(&ax, &ay, &az, &gx, &gy, &gz);
+            IMU660RA_UpdateYaw_Filtered(gz);
+            if (car_running)
                 Car_Run_StateMachine();
-            }
             else
-            {
                 Set_PWM(0, 0);
-            }
-            // 每10个节拍（200ms）刷新一次OLED，减少I2C对控制回路的干扰
+
             if (++oled_disp_counter >= 10)
             {
                 oled_disp_counter = 0;
@@ -175,13 +122,11 @@ int main(void)
 }
 
 /**
- * @brief  在OLED上显示偏航角（第2行，从第6列开始）
+ * @brief  在OLED上显示偏航角
  */
 static void OLED_DisplayYaw(void)
 {
-    float yaw = IMU660RA_GetYaw();
-    uint16_t yaw_int = (uint16_t)yaw;
-    OLED_ShowNum(2, 6, yaw_int, 3);
+    OLED_ShowNum(2, 6, (uint16_t)IMU660RA_GetYaw(), 3);
 }
 
 /* ============================================================
@@ -189,228 +134,85 @@ static void OLED_DisplayYaw(void)
  * ============================================================ */
 static void Key_Scan(void)
 {
-    Keynum = Key_GetNum();
-    if (Keynum == 0) {
-        return;
-    }
-    // 通用初始化操作
+    uint8_t key = Key_GetNum();
+    if (key == 0) return;
+
+    // 通用初始化流程
     Car_Reset_Angle();
     IMU660ra_Calibrate();
-    Car_Update_Angle();
     Car_Lock_Current_Heading();
-    circle_count = 0;
-    timer_active = 0;       // 重置定时器
-    car_state = 0x1000;
+    timer_active = 0;
+    car_running = 1;
 
-    switch (Keynum)
+    task_select = key;
+    OLED_Clear();
+    OLED_ShowString(1, 1, "Task:");
+    OLED_ShowNum(1, 6, key, 1);
+    OLED_ShowString(2, 1, "Yaw:");
+
+    switch (key)
     {
-    case 1:
-        task_select = 1;
-        now_state = STATE1_Straight1;
-        OLED_Clear();
-        OLED_ShowString(1, 1, "Task:1");
-        OLED_ShowString(2, 1, "Yaw:");
-        break;
-
-    case 2:
-        task_select = 2;
-        now_state =STATE2_Straight1;
-        OLED_Clear();
-        OLED_ShowString(1, 1, "Task:2");
-        OLED_ShowString(2, 1, "Yaw:");
-        break;
-
-    case 3:
-        task_select = 3;
-        Car_Set_Straight_Target(0.0f);
-        now_state =STATE3_Straight1;
-        OLED_Clear();
-        OLED_ShowString(1, 1, "Task:3");
-        OLED_ShowString(2, 1, "Yaw:");
-        break;
-
-    default:
-        break;
+    case 1: now_state = STATE1_Straight1; break;
+    case 2: now_state = STATE2_Straight1; break;
+    case 3: Car_Set_Straight_Target(0.0f); now_state = STATE3_Straight1; break;
     }
 }
 
 /* ============================================================
- *  车辆状态机
+ *  运行状态机
  * ============================================================ */
 static void Car_Run_StateMachine(void)
 {
     switch (task_select)
     {
-         //30=47.6cm/s；
-        //35=61.0cm/s；
-        //40=72.3cm/s
-    //任务1
     case 1:
-     switch (now_state)
+        switch (now_state)
         {
-        case STATE1_Straight1:
-            Car_Go_Straight_To_Target(35, 1.0f);
-            if(!timer_active) Timer_Start(3400);   // 首次进入时启动
-            if(Timer_Check()) {                  // 时间到
-                now_state = STATE1_Straight2; 
-            }
-            break;
-        case STATE1_Straight2:
-            Car_Go_Straight_To_Target(35, -90.0f);
-            if(!timer_active) Timer_Start(500);   // 首次进入时启动
-            if(Timer_Check()) {                  // 时间到
-                now_state = STATE1_Straight3; 
-            }
-            break;
-        case STATE1_Straight3:
-            Car_Go_Straight_To_Target(35, 0.0f);
-            if(!timer_active) Timer_Start(1000);   // 首次进入时启动
-            if(Timer_Check()) {                  // 时间到
-                now_state = STATE1_STOP1; 
-            }
-            break;
+        case STATE1_Straight1: TIMED_STRAIGHT(35,  1.0f,   3400, STATE1_Straight2); break;
+        case STATE1_Straight2: TIMED_STRAIGHT(35, -90.0f,   500, STATE1_Straight3); break;
+        case STATE1_Straight3: TIMED_STRAIGHT(35,  0.0f,  1000, STATE1_STOP1);      break;
         case STATE1_STOP1:
             Buzzer_Beep(100);
             Set_PWM(0, 0);
-            car_state = 0x0000;
+            car_running = 0;
             break;
         }
         break;
-    //任务2
+
     case 2:
         switch (now_state)
         {
-         case STATE2_Straight1:
-            Car_Go_Straight_To_Target(35, 0.0f);
-            if(!timer_active) Timer_Start(1700);   // 首次进入时启动
-            if(Timer_Check()) {                  // 时间到
-                now_state = STATE2_Straight2; 
-            }
-            break;
-        case STATE2_Straight2:
-            Car_Go_Straight_To_Target(35, -60.0f);
-            if(!timer_active) Timer_Start(880);   // 首次进入时启动
-            if(Timer_Check()) {                  // 时间到
-                now_state = STATE2_Straight3; 
-            }
-            break;
-        case STATE2_Straight3:
-            Car_Go_Straight_To_Target(35, 60.0f);
-            if(!timer_active) Timer_Start(1080);   // 首次进入时启动
-            if(Timer_Check()) {                  // 时间到
-                now_state = STATE2_Straight4; 
-            }
-            break;
-        case STATE2_Straight4:
-            Car_Go_Straight_To_Target(35, -60.0f);   
-            if(!timer_active) Timer_Start(1100);   // 首次进入时启动
-            if(Timer_Check()) {                  // 时间到 
-                now_state = STATE2_Straight5; 
-            }
-            break;
-        case STATE2_Straight5:
-            Car_Go_Straight_To_Target(35, 0.0f);   
-            if(!timer_active) Timer_Start(819);   // 首次进入时启动
-            if(Timer_Check()) {                  // 时间到 
-                now_state = STATE2_STOP1; 
-            }
-            break; 
+        case STATE2_Straight1: TIMED_STRAIGHT(35,  0.0f,   1700, STATE2_Straight2); break;
+        case STATE2_Straight2: TIMED_STRAIGHT(35, -60.0f,   880, STATE2_Straight3); break;
+        case STATE2_Straight3: TIMED_STRAIGHT(35,  60.0f,  1080, STATE2_Straight4); break;
+        case STATE2_Straight4: TIMED_STRAIGHT(35, -60.0f,  1100, STATE2_Straight5); break;
+        case STATE2_Straight5: TIMED_STRAIGHT(35,   0.0f,   819, STATE2_STOP1);     break;
         case STATE2_STOP1:
-        
             Set_PWM(0, 0);
-            car_state = 0x0000;
-            break;  
+            car_running = 0;
+            break;
         }
         break;
-        //任务3
-    case 3:
-         //72.3cm/s
-         switch (now_state)
-         {
-            case STATE3_Straight1:
-                Car_Go_Straight_To_Target(35, 1.0f);
-                if(!timer_active) Timer_Start(1700);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight2; 
-                }
-                break;
-            case STATE3_Straight2:
-               Car_Go_Straight_To_Target(35, 300.0f);
-                if(!timer_active) Timer_Start(370);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight3; 
-                }
-                break;
-            case STATE3_Straight3:
-                Car_Go_Straight_To_Target(35, 230.0f);
-                if(!timer_active) Timer_Start(570);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight4; 
-                }
-                break;
-            case STATE3_Straight4:
-                Car_Go_Straight_To_Target(35, 120.0f);
-                if(!timer_active) Timer_Start(770);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight5; 
-                }
-                break;
-            case STATE3_Straight5:
-                Car_Go_Straight_To_Target(35,30.0f);
-                if(!timer_active) Timer_Start(570);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight6; 
-                }
-                break;
-            case STATE3_Straight6:
-                Car_Go_Straight_To_Target(40,1.0f);
-                if(!timer_active) Timer_Start(674);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight7; 
-                }
-                break;
-            case STATE3_Straight7:
-                Car_Go_Straight_To_Target(35, 300.0f);
-                if(!timer_active) Timer_Start(830);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight8; 
-                }
-                break;
-            case STATE3_Straight8:
-                Car_Go_Straight_To_Target(35, 40.0f);
-                if(!timer_active) Timer_Start(570);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight9; 
-                }
-                break;
-            case STATE3_Straight9:
-                Car_Go_Straight_To_Target(35,140.0f);
-                if(!timer_active) Timer_Start(570);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight10; 
-                }
-                break;
-            case STATE3_Straight10:
-                Car_Go_Straight_To_Target(35, 240.0f);
-                if(!timer_active) Timer_Start(700);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_Straight11; 
-                }
-                break;
-            case STATE3_Straight11:
-                Car_Go_Straight_To_Target(40, 0.0f);
-                if(!timer_active) Timer_Start(1600);   // 首次进入时启动
-                if(Timer_Check()) {                  // 时间到
-                    now_state = STATE3_STOP1; 
-                }
-                break;
-            case STATE3_STOP1:
-                Set_PWM(0, 0);
-                car_state = 0x0000;
-                break;
 
-         }
+    case 3:
+        switch (now_state)
+        {
+        case STATE3_Straight1:  TIMED_STRAIGHT(35,   1.0f,  1700, STATE3_Straight2);  break;
+        case STATE3_Straight2:  TIMED_STRAIGHT(35, 300.0f,   370, STATE3_Straight3);  break;
+        case STATE3_Straight3:  TIMED_STRAIGHT(35, 230.0f,   570, STATE3_Straight4);  break;
+        case STATE3_Straight4:  TIMED_STRAIGHT(35, 120.0f,   770, STATE3_Straight5);  break;
+        case STATE3_Straight5:  TIMED_STRAIGHT(35,  30.0f,   570, STATE3_Straight6);  break;
+        case STATE3_Straight6:  TIMED_STRAIGHT(40,   1.0f,   674, STATE3_Straight7);  break;
+        case STATE3_Straight7:  TIMED_STRAIGHT(35, 300.0f,   830, STATE3_Straight8);  break;
+        case STATE3_Straight8:  TIMED_STRAIGHT(35,  40.0f,   570, STATE3_Straight9);  break;
+        case STATE3_Straight9:  TIMED_STRAIGHT(35, 140.0f,   570, STATE3_Straight10); break;
+        case STATE3_Straight10: TIMED_STRAIGHT(35, 240.0f,   700, STATE3_Straight11); break;
+        case STATE3_Straight11: TIMED_STRAIGHT(40,   0.0f,  1600, STATE3_STOP1);      break;
+        case STATE3_STOP1:
+            Set_PWM(0, 0);
+            car_running = 0;
+            break;
+        }
         break;
-     
     }
 }
