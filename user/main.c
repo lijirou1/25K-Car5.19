@@ -9,15 +9,17 @@
 #include "pwm.h"
 #include "line.h"
 #include "stm32f10x_iwdg.h"
-/* ==================== È«¾Ö±äÁ¿ ==================== */
+/* ==================== ?? ==================== */
+
+// PWM?????
 int V_R = 0;
 int V_L = 0;
-int16_t AX, AY, AZ, GX, GY, GZ;          // IMUÔ­Ê¼Êı¾İ
-uint16_t car_state = 0x0000;              // ³µÁ¾×´Ì¬£º0x0000=Í£Ö¹£¬0x1000=ÔËĞĞ
-static uint8_t oled_disp_counter = 0;     // OLEDË¢ĞÂ¼ÆÊıÆ÷
-static uint8_t total_laps = 1;            // ÈÎÎñ1Éè¶¨È¦Êı (1~5)
+int16_t AX, AY, AZ, GX, GY, GZ;          // IMU??
+uint16_t car_state = 0x0000;              // ??0x0000=??0x1000=
+static uint8_t oled_disp_counter = 0;     // OLED?¼
+static uint8_t total_laps = 1;            // 1?? (1~5)
 
-/* ==================== ÏµÍ³Ä£Ê½Ã¶¾Ù ==================== */
+/* ==================== ????ö ==================== */
 typedef enum {
     SYS_MENU,
     SYS_TASK1_SETUP,
@@ -26,35 +28,34 @@ typedef enum {
 } SysMode;
 static SysMode sys_mode = SYS_MENU;
 
-/* ÈÎÎñ1×´Ì¬±äÁ¿ */
-static uint8_t  square_edges = 0;     // ÒÑÍê³ÉµÄ±ßÊı
+/* 1?? */
+static uint8_t  square_edges = 0;     // ??
 
-/* ==================== º¯ÊıÉùÃ÷ ==================== */
-static void SystemClock_Config(void);
+/* ====================  ==================== */
 static void Key_Scan(void);
 static void Task1_Run(void);
 static void Show_Menu(void);
 static void Show_Task1_Setup(void);
 static void Show_Run_Info(void);
 
-/* ==================== ÏµÍ³³õÊ¼»¯ ==================== */
+/* ==================== ??? ==================== */
 static void SystemClock_Config(void)
 {
     SystemInit();
 }
 
-/* ==================== ¶ÀÁ¢¿´ÃÅ¹·³õÊ¼»¯ ==================== */
+/* ==================== ?? ==================== */
 static void IWDG_Init(void)
 {
-    /* IWDG Ê±ÖÓ = LSI ~40kHz£¬64·ÖÆµ ¡ú Ô¼625Hz */
+    /* IWDG ? = LSI ~40kHz64?  ?625Hz */
     IWDG_WriteAccessCmd(IWDG_WriteAccess_Enable);
-    IWDG_SetPrescaler(IWDG_Prescaler_64);      // ·ÖÆµ 64
-    IWDG_SetReload(1250);                       // Ô¼2Ãë³¬Ê± (64*1250/40000¡Ö2.0s)
+    IWDG_SetPrescaler(IWDG_Prescaler_64);      // ? 64
+    IWDG_SetReload(1250);                       // ?2?? (64*1250/400002.0s)
     IWDG_ReloadCounter();
     IWDG_Enable();
 }
 
-/* ==================== Ö÷º¯Êı ==================== */
+/* ====================  ==================== */
 int main(void)
 {
     SystemClock_Config();
@@ -65,7 +66,7 @@ int main(void)
     {
         OLED_ShowString(1, 1, "IMU Init Fail!");
         OLED_ShowString(2, 1, "Check Wiring!");
-        while (1);  // IMU ³õÊ¼»¯Ê§°Ü£¬Í£»ú
+        while (1);  // IMU ????
     }
 
     Gpio_Init();
@@ -74,7 +75,7 @@ int main(void)
     NVIC_PriorityGroupConfig(NVIC_PriorityGroup_2);
     IMU660ra_Calibrate();
     TIM2_Init();
-    IWDG_Init();        // Æô¶¯¶ÀÁ¢¿´ÃÅ¹·
+    IWDG_Init();        // ?
 
     sys_mode = SYS_MENU;
     Show_Menu();
@@ -82,7 +83,7 @@ int main(void)
     while (1)
     {
         Key_Scan();
-        IWDG_ReloadCounter();   // Î¹¹·
+        IWDG_ReloadCounter();   // ?
 
         if (control_flag)
         {
@@ -103,9 +104,9 @@ int main(void)
     }
 }
 
-/* ==================== OLED ÏÔÊ¾º¯Êı ==================== */
+/* ==================== OLED ? ==================== */
 
-// Ö÷²Ëµ¥
+// ?
 static void Show_Menu(void)
 {
     OLED_Clear();
@@ -113,7 +114,7 @@ static void Show_Menu(void)
     OLED_ShowString(2, 1, "2.Task2 Empty");
 }
 
-// ÈÎÎñ1È¦ÊıÉèÖÃ½çÃæ
+// 1?ı
 static void Show_Task1_Setup(void)
 {
     OLED_Clear();
@@ -124,7 +125,7 @@ static void Show_Task1_Setup(void)
     OLED_ShowString(4, 1, "K2=Back");
 }
 
-// ÔËĞĞÖĞĞÅÏ¢ÏÔÊ¾
+// ??
 static void Show_Run_Info(void)
 {
     float yaw = IMU660RA_GetYaw();
@@ -139,27 +140,27 @@ static void Show_Run_Info(void)
     OLED_ShowString(3, 5, "deg");
 }
 
-/* ==================== ÈÎÎñ1£ºÕı·½ĞÎÑ­¼£ ==================== */
+/* ==================== 1? ==================== */
 static void Task1_Run(void)
 {
-    // ÏÈ¼ì²âÖ±½Ç×ªÍä£¨×ªÍäÖĞ»áÉè busy ±êÖ¾£¬Ìø¹ıºóĞøÑ­¼££©
+    // ?????? busy ??
     int8_t ret = Auto_RightAngleTurn();
 
     if (ret == 0)
     {
-        // ¡ï ¹Ø¼üĞŞ¸´£º×ªÍä½øĞĞÖĞ£¨Ç°³å»ò×ªÍä½×¶Î£©²»Ö´ĞĞÑ­¼££¬±ÜÃâPWM³åÍ» ¡ï
+        //  ??????????PWM? 
         if (!Is_Auto_Turning_Busy())
         {
-            // ¿ÕÏĞ×´Ì¬ ¡ú Õı³£Ñ­¼£
+            // ??  ?
             if (Check_BlackLine())
                 track_zhixian1();
         }
     }
     else
     {
-        // ×ªÍäÍê³É
+        // ?
         square_edges++;
-        // Íê³ÉËùÓĞ±ßÊıÔòÍ£Ö¹
+        // ???
         if (square_edges >= total_laps * 4)
         {
             Set_PWM(0, 0);
@@ -170,7 +171,7 @@ static void Task1_Run(void)
     }
 }
 
-/* =================== °´¼üÉ¨Ãè ==================== */
+/* =================== ? ==================== */
 static void Key_Scan(void)
 {
     uint8_t key = Key_GetNum();
@@ -181,14 +182,14 @@ static void Key_Scan(void)
         case SYS_MENU:
             if (key == 1)
             {
-                // ½øÈëÈÎÎñ1ÉèÖÃ
+                // 1
                 total_laps = 1;
                 sys_mode = SYS_TASK1_SETUP;
                 Show_Task1_Setup();
             }
             else if (key == 2)
             {
-                // ½øÈëÈÎÎñ2£¨¿ÕÈÎÎñ£©
+                // 2
                 sys_mode = SYS_TASK2;
                 OLED_Clear();
                 OLED_ShowString(1, 1, "Task2:Coming");
@@ -199,7 +200,7 @@ static void Key_Scan(void)
         case SYS_TASK1_SETUP:
             if (key == 1)
             {
-                // È·ÈÏ²¢Æô¶¯ÈÎÎñ1
+                // ??1
                 Car_Reset_Angle();
                 IMU660ra_Calibrate();
                 Car_Lock_Current_Heading();
@@ -211,13 +212,13 @@ static void Key_Scan(void)
             }
             else if (key == 2)
             {
-                // ·µ»Ø²Ëµ¥
+                // ??
                 sys_mode = SYS_MENU;
                 Show_Menu();
             }
             else if (key == 3)
             {
-                // ÇĞ»»È¦Êı 1¡ú2¡ú3¡ú4¡ú5¡ú1
+                // ?? 123451
                 total_laps++;
                 if (total_laps > 5) total_laps = 1;
                 Show_Task1_Setup();
@@ -225,7 +226,7 @@ static void Key_Scan(void)
             break;
 
         case SYS_TASK1_RUN:
-            // ÔËĞĞÖĞ°´ÈÎÒâ¼üÍ£Ö¹²¢»Ø²Ëµ¥£¨K4 ½ô¼±Í£Ö¹£©
+            // ?????K4 ??
             if (key <= 4)
             {
                 Set_PWM(0, 0);
@@ -236,7 +237,7 @@ static void Key_Scan(void)
             break;
 
         case SYS_TASK2:
-            // ÈÎÎñ2ÖĞÈÎÒâ¼ü·µ»Ø²Ëµ¥
+            // 2??
             if (key <= 4)
             {
                 sys_mode = SYS_MENU;
