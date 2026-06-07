@@ -820,6 +820,16 @@
               <FileType>5</FileType>
               <FilePath>.\Hardware\OLED_Font.h</FilePath>
             </File>
+            <File>
+              <FileName>moto.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>.\Hardware\moto.c</FilePath>
+            </File>
+            <File>
+              <FileName>moto.h</FileName>
+              <FileType>5</FileType>
+              <FilePath>.\Hardware\moto.h</FilePath>
+            </File>
           </Files>
         </Group>
       </Groups>

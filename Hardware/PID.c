@@ -25,31 +25,18 @@ typedef struct
 static PID_TypeDef PID_Str;        // 直行控制PID实例
 static PID_TypeDef PID_Turn;       // 转弯控制PID实例
 
-// 初始化直行控制PID参数
-static void PID_Init(float kp, float ki, float kd)
+// 初始化PID参数（通用）
+static void PID_Init(PID_TypeDef *pid, float kp, float ki, float kd)
 {
-    PID_Str.Kp = kp;
-    PID_Str.Ki = ki;
-    PID_Str.Kd = kd;
-    PID_Str.target = 0;
-    PID_Str.measure = 0;
-    PID_Str.err = 0;
-    PID_Str.last_err = 0;
-    PID_Str.integral = 0;
-    PID_Str.output = 0;
-}
-// 初始化转弯控制PID参数
-static void PID_Turn_Init(float kp, float ki, float kd)
-{
-    PID_Turn.Kp = kp;
-    PID_Turn.Ki = ki;
-    PID_Turn.Kd = kd;
-    PID_Turn.target = 0;
-    PID_Turn.measure = 0;
-    PID_Turn.err = 0;
-    PID_Turn.last_err = 0;
-    PID_Turn.integral = 0;
-    PID_Turn.output = 0;
+    pid->Kp = kp;
+    pid->Ki = ki;
+    pid->Kd = kd;
+    pid->target = 0;
+    pid->measure = 0;
+    pid->err = 0;
+    pid->last_err = 0;
+    pid->integral = 0;
+    pid->output = 0;
 }
 // 采样陀螺仪静态零偏，并重置直行PID
 void IMU660ra_Calibrate(void)
@@ -58,14 +45,8 @@ void IMU660ra_Calibrate(void)
     IMU660RA_CalibrateGyroZ();
     yaw_offset = IMU660RA_GetYaw(); // 校准后当前yaw设为偏移基准
 
-    // 直行PID参数，可根据实际跑车效果继续微调
-    PID_Init(1.3f, 0.0f,12.0f);
-   // 1.2f, 0.0f,4.0f speed=30-40
-
-    // 转弯PID参数（Kp=每1°误差对应的PWM增量，Kd抑制过冲）
-    // 新映射方式：PID输出直接作为PWM幅度，不再乘以固定系数
-    // 推荐调试顺序：先调Kp使转弯速度合适，再加Kd消除过冲
-    PID_Turn_Init(1.0f, 0.00f, 0.5f);
+    PID_Init(&PID_Str, 1.3f, 0.0f, 12.0f);
+    PID_Init(&PID_Turn, 1.0f, 0.0f, 0.5f);
 }
 // 位置式PID计算（通用，可指定PID实例）
 static float PID_Calc_Generic(PID_TypeDef *pid, float measure, float target)
@@ -93,22 +74,17 @@ static float PID_Calc(float measure, float target)
 {
     return PID_Calc_Generic(&PID_Str, measure, target);
 }
-// 清空PID内部状态，通常在重新开始任务或转弯前调用
-static void PID_Clear(void)
+// 清空PID内部状态（通用）
+static void PID_Clear(PID_TypeDef *pid)
 {
-    PID_Str.err = 0;
-    PID_Str.last_err = 0;
-    PID_Str.integral = 0;
-    PID_Str.output = 0;
+    pid->err = 0;
+    pid->last_err = 0;
+    pid->integral = 0;
+    pid->output = 0;
 }
-// 清空转弯PID内部状态
-static void PID_Turn_Clear(void)
-{
-    PID_Turn.err = 0;
-    PID_Turn.last_err = 0;
-    PID_Turn.integral = 0;
-    PID_Turn.output = 0;
-}
+// 速度值限幅到 [-100, 100]
+#define CLAMP_SPEED(v)  do { if ((v) > 100) (v) = 100; else if ((v) < -100) (v) = -100; } while(0)
+
 //将角度差归一化到 -180° ~ +180°
 static float Angle_Normalize(float diff)
 {
@@ -118,11 +94,9 @@ static float Angle_Normalize(float diff)
         diff += 360.0f;
     return diff;
 }
+// 角速度已在主循环中每20ms更新，此函数仅作兼容声明，实际无操作
 void Car_Update_Angle(void)
 {
-   // Yaw已在main.c主循环中每20ms更新一次（IMU660RA_GetData + IMU660RA_UpdateYaw_Filtered）
-// Car_Update_Angle() 仅作为获取最新Yaw值的占位函数，避免重复积分
-// 所有PID函数内部调用此函数时不再重复读取IMU
 }
 // 读取当前偏航角（基于IMU660RA，以校准时刻为基准偏移）
 float Car_Get_Angle(void)
@@ -148,111 +122,56 @@ float Car_Get_Straight_Target(void)
 void Car_Lock_Current_Heading(void)
 {
     straight_target_angle = Car_Get_Angle();
-    PID_Clear();
+    PID_Clear(&PID_Str);
 }
 // 重新开始角度计算：以当前IMU yaw为偏移基准
 void Car_Reset_Angle(void)
 {
     yaw_offset = IMU660RA_GetYaw();
     straight_target_angle = 0.0f;
-    PID_Clear();
+    PID_Clear(&PID_Str);
 }
 
-// 直行控制：根据车头偏角修正左右轮PWM，实现跑直线
+/**
+ * @brief  内部直行核心：基于Yaw偏差计算修正，驱动电机
+ * @param  speed     基础速度
+ * @param  target    目标航向角（度）
+ * @param  max_corr  最大修正量，与速度联动防过调
+ */
+static void Straight_Core(int speed, float target, int max_corr)
+{
+    float err = Angle_Normalize(target - Car_Get_Angle());
+    int correction;
+
+    if (err > -1.0f && err < 1.0f)
+    {
+        PID_Clear(&PID_Str);
+        correction = 0;
+    }
+    else
+    {
+        correction = (int)PID_Calc(0, err);
+        if (correction > max_corr) correction = max_corr;
+        else if (correction < -max_corr) correction = -max_corr;
+    }
+
+    V_L = speed - correction;
+    V_R = speed + correction;
+    CLAMP_SPEED(V_L);
+    CLAMP_SPEED(V_R);
+    Set_PWM(V_R, V_L);
+}
+
+// 按锁定的目标航向直行
 void Car_Go_Straight(int speed)
 {
-    float angle;
-    float err;
-    int correction;
-
-    Car_Update_Angle();
-    angle = Car_Get_Angle();
-
-    // 计算归一化的角度偏差（-180° ~ +180°）
-    err = Angle_Normalize(straight_target_angle - angle);
-
-    // 起步或微小抖动时不做差速修正，避免左右轮一开始就被拉开
-    if (err > -1.0f && err < 1.0f)
-    {
-        PID_Clear();
-        correction = 0;
-    }
-    else
-    {
-        // 使用归一化后的误差进行PID计算
-        correction = (int)PID_Calc(0, err);
-    }
-    if (correction > 15)
-        correction = 15;
-    if (correction < -15)
-        correction = -15;
-
-    // 通过差速修正航向
-    V_L = speed - correction;
-    V_R = speed + correction;
-
-    // 输出限幅，避免PWM超出允许范围
-    if (V_L > 100)
-        V_L = 100;
-    if (V_L < -100)
-        V_L = -100;
-    if (V_R > 100)
-        V_R = 100;
-    if (V_R < -100)
-        V_R = -100;
-
-    Set_PWM(V_R, V_L);
+    Straight_Core(speed, straight_target_angle, 10);
 }
 
-//按yaw角度转弯到目标角度，返回1表示到位，0表示仍在转弯中
+// 按指定目标角度直行
 void Car_Go_Straight_To_Target(int speed, float target_yaw)
 {
-    float angle;
-    float err;
-    int correction;
-
-    // 1. 更新当前角度
-    Car_Update_Angle();
-    angle = Car_Get_Angle();
-
-    // 2. 计算归一化的角度偏差（-180° ~ +180°）
-    err = Angle_Normalize(target_yaw - angle);
-
-    // 3. 小死区：偏差<1度时不做修正，避免频繁抖动
-    if (err > -1.0f && err < 1.0f)
-    {
-        PID_Clear();
-        correction = 0;
-    }
-    else
-    {
-        // 使用归一化后的误差进行PID计算
-        // 直接传入归一化误差err，PID输出 = Kp*err + Kd*(err - last_err)
-        correction = (int)PID_Calc(0, err);
-    }
-
-    // 限幅修正量（与Car_Go_Straight保持一致）
-    if (correction > 15)
-        correction = 15;
-    if (correction < -15)
-        correction = -15;
-
-    // 4. 计算左右轮速度（与Car_Go_Straight符号一致）
-    //    修正量为正 → 左轮加速、右轮减速 → 向右纠偏
-    V_L = speed - correction;
-    V_R = speed + correction;
-
-    // 5. 输出限幅
-    if (V_L > 100)
-        V_L = 100;
-    if (V_L < -100)
-        V_L = -100;
-    if (V_R > 100)
-        V_R = 100;
-    if (V_R < -100)
-        V_R = -100;
-
-    Set_PWM(V_R, V_L);
+    Straight_Core(speed, target_yaw, 10);
 }
 
 /**
@@ -272,65 +191,40 @@ void Car_Go_Straight_To_Target(int speed, float target_yaw)
  */
 uint8_t Car_Turn_To_Yaw(float target_yaw, int speed)
 {
-    float angle;
-    float err;
+    float angle = Car_Get_Angle();
+    float err = Angle_Normalize(target_yaw - angle);
+    float correction;
+    int pwm_magnitude;
 
-    // 1. 更新当前角度
-    Car_Update_Angle();
-    angle = Car_Get_Angle();
-
-    // 2. 计算归一化误差（-180 ~ +180）
-    err = Angle_Normalize(target_yaw - angle);
-
-    // 3. 到达判断：偏差绝对值小于2度认为到位
+    // 到达判断：偏差绝对值小于1度认为到位
     if (err > -1.0f && err < 1.0f)
     {
-        // 到达目标，停车并清空PID状态
-        PID_Turn_Clear();
+        PID_Clear(&PID_Turn);
         Set_PWM(0, 0);
         return 1;
     }
 
-    // 4. 使用转弯PID计算修正量
-    //    目标值传0，测量值传err，PID输出 = -Kp*err - Ki*integral - Kd*derr
-    //    这样err为正（需顺时针转）时输出为负 → 右轮负、左轮正
-    float correction = PID_Calc_Generic(&PID_Turn, err, 0.0f);
+    // 使用转弯PID计算修正量
+    correction = PID_Calc_Generic(&PID_Turn, err, 0.0f);
+    if (correction < 0) correction = -correction;
 
-    // 5. 将PID输出映射到PWM值
-    //    PID输出直接作为PWM幅度，Kp的物理意义=每度误差对应的PWM增量
-    //    例如Kp=1.5时，90°误差→PID输出=135→限幅到speed
-    float abs_correction = correction;
-    if (abs_correction < 0)
-        abs_correction = -abs_correction;
+    pwm_magnitude = (int)correction;
+    if (pwm_magnitude > speed) pwm_magnitude = speed;
+    if (pwm_magnitude < 15)    pwm_magnitude = 15;
 
-    // 根据误差大小动态调整PWM：误差大时全速，误差小时减速
-    int pwm_magnitude = (int)(abs_correction);  // 直接使用PID输出值，不再乘以固定系数
-    if (pwm_magnitude > speed)
-        pwm_magnitude = speed;
-    if (pwm_magnitude < 15)   // 最小PWM保证足够力矩启动
-        pwm_magnitude = 15;
-
-    // 6. 根据误差方向决定左右轮：err>0 顺时针转
     if (err > 0.0f)
     {
-        // 顺时针：右轮反转，左轮正转
-        V_R =  -pwm_magnitude;
-        V_L = pwm_magnitude;
+        V_R =  pwm_magnitude;
+        V_L = -pwm_magnitude;
     }
     else
     {
-        // 逆时针：右轮正转，左轮反转
-        V_R = pwm_magnitude;
-        V_L = -pwm_magnitude;
+        V_R = -pwm_magnitude;
+        V_L =  pwm_magnitude;
     }
 
-    // 7. 限幅输出
-    if (V_R > 100)  V_R = 100;
-    if (V_R < -100) V_R = -100;
-    if (V_L > 100)  V_L = 100;
-    if (V_L < -100) V_L = -100;
-
+    CLAMP_SPEED(V_R);
+    CLAMP_SPEED(V_L);
     Set_PWM(V_R, V_L);
-
-    return 0;  // 仍在转弯中
+    return 0;
 }

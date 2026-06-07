@@ -31,5 +31,5 @@
 .\objects\main.o: .\system\delay.h
 .\objects\main.o: .\Hardware\IMU660RA.h
 .\objects\main.o: .\Hardware\OLED.h
-.\objects\main.o: .\Hardware\Buzzer.h
 .\objects\main.o: .\Hardware\PID.h
+.\objects\main.o: .\Hardware\timer.h

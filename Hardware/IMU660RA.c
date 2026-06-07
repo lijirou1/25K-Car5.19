@@ -264,7 +264,6 @@ static uint8_t was_stationary = 0;     // 上一周期是否静止
 /* 急转弯后的ZUPT冷却周期数：急转弯后500ms（25个周期）内禁止ZUPT冻结角度 */
 #define ZUPT_COOLDOWN_CYCLES      25        // 冷却周期数
 static uint8_t turn_cooldown = 0;           // 转弯冷却计数器（>0时禁用ZUPT冻结）
-static uint8_t was_turning = 0;             // 上一周期是否处于急转弯状态
 
 /**
  * @brief  更新偏航角（自适应卡尔曼滤波 + 急转弯检测 + ZUPT冷却）
@@ -299,8 +298,7 @@ void IMU660RA_UpdateYaw_Filtered(int16_t GZ)
 
     if(abs_raw_dps >= TURN_HIGH_SPEED_THRESHOLD)
     {
-        /* 当前处于急转弯状态 → 标记并启动冷却 */
-        was_turning = 1;
+        /* 当前处于急转弯状态 → 启动冷却 */
         turn_cooldown = ZUPT_COOLDOWN_CYCLES;  // 启动冷却计时器
     }
     else if(turn_cooldown > 0)
@@ -310,8 +308,7 @@ void IMU660RA_UpdateYaw_Filtered(int16_t GZ)
     }
     else
     {
-        /* 冷却结束 → 清除转弯标志 */
-        was_turning = 0;
+        /* 冷却结束 */
     }
 
     /* 4. ZUPT判定：仅在冷却结束后（即非急转弯后减速期）才允许冻结角度 */
