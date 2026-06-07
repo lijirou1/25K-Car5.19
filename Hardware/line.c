@@ -28,7 +28,7 @@ extern int V_L;
 #define CLAMP_SPEED(v)  do { if ((v) > 100) (v) = 100; else if ((v) < -100) (v) = -100; } while(0)
 
 /* PID参数 */
-static float line_kp =1.9 f;
+static float line_kp = 1.9f;
 static float line_ki = 0.0f;
 static float line_kd = 7.5f;
 
